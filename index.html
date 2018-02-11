@@ -1,0 +1,41 @@
+<html>
+
+<head>
+    <title>Akka Streams</title>
+</head>
+
+<body>
+    <div>
+        Source processing time: <input id="source-processing-time" type="range" min="10" max="1000">
+    </div>
+    <div>
+        Sink processing time: <input id="sink-processing-time" type="range" min="1" max="5000">
+    </div>
+
+    <script language="javascript">
+        ws = new WebSocket('ws://localhost:8080/stream-control');
+
+        document.getElementById("source-processing-time")
+                .addEventListener('change', function (e) {
+                    ws.send(`set-source-processing-time:${event.target.value}`)
+                });
+
+        document.getElementById("sink-processing-time")
+                .addEventListener('change', function (e) {
+                    ws.send(`set-sink-processing-time:${event.target.value}`)
+                });
+        
+
+        // Connection opened
+        ws.addEventListener('open', function (event) {
+            console.log('Websocket open')
+        });
+
+        // Listen for messages
+        ws.addEventListener('message', function (event) {
+            console.log('Message from server ', event.data);
+        });
+    </script>
+</body>
+
+</html>
