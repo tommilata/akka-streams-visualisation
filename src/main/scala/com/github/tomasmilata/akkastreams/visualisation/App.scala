@@ -1,74 +1,22 @@
-package wordSink
+package com.github.tomasmilata.akkastreams.visualisation
 
-import scala.concurrent.{Await, Future}
-import scala.concurrent.duration._
-import scala.io.StdIn
-import scala.util.Random
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.duration._
+import scala.concurrent.{Await, Future}
 
-import akka.actor._
-import akka.stream._
-import akka.stream.scaladsl._
-import akka.http.scaladsl._
+import akka.actor.{ActorSystem, Props, _}
+import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.ws.{Message, TextMessage}
 import akka.http.scaladsl.server.Directives._
-import akka.{Done, NotUsed}
-import akka.actor.{Actor, ActorRef, ActorSystem, Props}
-import akka.http.scaladsl.Http
-import akka.stream.scaladsl.{Flow, Sink, Source}
 import akka.pattern.ask
-import akka.stream.actor.ActorPublisher
-import akka.stream.{ActorMaterializer, ThrottleMode}
+import akka.stream.ActorMaterializer
+import akka.stream.scaladsl.{Flow, Sink, Source}
 import akka.util.Timeout
+import akka.{Done, NotUsed}
+import com.github.tomasmilata.akkastreams.visualisation.control.{GetSpeed, SetSpeed, SinkControlActor, SourceControlActor, Speed}
 
-case class Speed(processingTime: FiniteDuration)
 
-case class SetSpeed(speed: Speed)
-object SetSpeed {
-  def apply(processingTime: FiniteDuration): SetSpeed = SetSpeed(Speed(processingTime))
-}
-
-case object GetSpeed
-
-class SourceControlActor extends Actor {
-  var speed: Speed = Speed(processingTime = 100.millis)
-
-  override def receive: Receive = {
-    case SetSpeed(s) =>
-      speed = s
-      println(s"Set sleep time to ${speed.processingTime}.")
-    case GetSpeed =>
-      sender ! speed
-  }
-
-}
-
-class SinkControlActor extends Actor {
-  var speed: Speed = Speed(processingTime = 10.millis)
-
-  override def receive: Receive = {
-    case SetSpeed(s) =>
-      speed = s
-      println(s"Set sleep time to ${speed.processingTime}.")
-    case GetSpeed => sender ! speed
-  }
-}
-
-object MonitoringActor {
-}
-
-class MonitoringActor extends Actor {
-  override def receive: Receive = {
-    case any: Any => println(s"Received $any.")
-  }
-}
-
-object AkkaStreamsApp extends App {
-
-  private def randomChar = {
-    val chars = "abcdefghijklmnopqrstuvwxyz"
-    chars.charAt(Random.nextInt(chars.length))
-  }
+object App extends App with RandomChars {
 
   implicit val system = ActorSystem()
   implicit val materializer = ActorMaterializer()
@@ -101,14 +49,6 @@ object AkkaStreamsApp extends App {
       }
   }
 
-  val runningFlow = wordFlow.runWith(
-    randomCharSource,
-    wordSink
-  )
-
-  runningFlow
-
-
   val incomingWebsocketMessages: Sink[Message, NotUsed] =
     Flow[Message].map {
       case TextMessage.Strict(text) => text
@@ -137,6 +77,11 @@ object AkkaStreamsApp extends App {
         )
       }
     }
+
+  wordFlow.runWith(
+    randomCharSource,
+    wordSink
+  )
 
   Await.result(Http().bindAndHandle(route, "127.0.0.1", 8080), 3.seconds)
 }
