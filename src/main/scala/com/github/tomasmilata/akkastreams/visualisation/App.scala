@@ -1,22 +1,27 @@
 package com.github.tomasmilata.akkastreams.visualisation
 
-import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.duration._
-import scala.concurrent.{Await, Future}
+import java.util.UUID
 
 import akka.actor.{ActorSystem, Props, _}
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.ws.{Message, TextMessage}
 import akka.http.scaladsl.server.Directives._
 import akka.pattern.ask
-import akka.stream.scaladsl.{Flow, Merge, Sink, Source}
+import akka.stream.scaladsl.{Flow, Sink, Source}
 import akka.stream.{ActorMaterializer, OverflowStrategy}
 import akka.util.Timeout
 import akka.{Done, NotUsed}
-import com.github.tomasmilata.akkastreams.visualisation.Events.{CharGenerated, WordGenerated}
-import com.github.tomasmilata.akkastreams.visualisation.MonitoringActor.{SubscribeChars, SubscribeWords}
-import com.github.tomasmilata.akkastreams.visualisation.control.{GetSpeed, SetSpeed, SinkControlActor, SourceControlActor, Speed}
+import com.github.tomasmilata.akkastreams.visualisation.Events._
+import com.github.tomasmilata.akkastreams.visualisation.MonitoringActor.Subscribe
+import com.github.tomasmilata.akkastreams.visualisation.control._
 
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.duration._
+import scala.concurrent.{Await, Future}
+
+
+case class Letter(value: Char, id: UUID = UUID.randomUUID)
+case class Word(value: String, id: UUID = UUID.randomUUID)
 
 object App extends App with RandomChars {
 
@@ -33,23 +38,29 @@ object App extends App with RandomChars {
     Stream.continually {
       (sourceControlActor ? GetSpeed).mapTo[Speed]
         .map { speed =>
+          val letter = Letter(randomChar)
+          monitoringActor ! SourceEventStarted(letter.value.toString, letter.id)
           Thread.sleep(speed.processingTime.toMillis)
-          val c = randomChar
-          monitoringActor ! CharGenerated(c)
-          println(s"Generated char $c in ${speed.processingTime}.")
-          c
+          monitoringActor ! SourceEventFinished(letter.value.toString, letter.id)
+          letter
         }
     }
   ).mapAsync(1)(identity)
 
-  val wordFlow: Flow[Char, String, NotUsed] = Flow[Char].grouped(10).map(_.mkString)
+  val wordFlow: Flow[Letter, Word, NotUsed] = Flow[Letter].grouped(10).map { letters =>
+    val word = Word(letters.map(_.value).mkString("'", "", "'"))
+    monitoringActor ! FlowEventStarted(word.value, word.id)
+    Thread.sleep(100)
+    monitoringActor ! FlowEventFinished(word.value, word.id)
+    word
+  }
 
-  val wordSink: Sink[String, Future[Done]] = Sink.foreach { word =>
+  val wordSink: Sink[Word, Future[Done]] = Sink.foreach { word =>
     (wordSinkControlActor ? GetSpeed).mapTo[Speed]
       .map { speed =>
+        monitoringActor ! SinkEventStarted(word.value, word.id)
         Thread.sleep(speed.processingTime.toMillis)
-        monitoringActor ! WordGenerated(word)
-        println(s"Processed word $word in ${speed.processingTime}.")
+        monitoringActor ! SinkEventFinished(word.value, word.id)
       }
   }
 
@@ -69,28 +80,25 @@ object App extends App with RandomChars {
           wordSinkControlActor ! setSpeed
       })
 
-    val outgoingChars: Source[Message, _] =
-      Source.actorRef[CharGenerated](1, OverflowStrategy.fail)
+    val outgoingWebsocketMessages: Source[Message, _] =
+      Source.actorRef[StreamEvent](1, OverflowStrategy.dropHead)
         .mapMaterializedValue { outgoingMessagesActor =>
-          monitoringActor ! SubscribeChars(outgoingMessagesActor)
+          monitoringActor ! Subscribe(outgoingMessagesActor)
           NotUsed
-        }.map { charGenerated =>
-        TextMessage.Strict(charGenerated.c.toString)
+        }.map { streamEvent =>
+        TextMessage.Strict(
+          s"""
+             |{
+             |  "type": "${streamEvent.getClass.getSimpleName}",
+             |  "id": "${streamEvent.id}",
+             |  "value": "${streamEvent.value}"
+             |}
+           """.stripMargin)
       }
-
-    val outgoingWords: Source[Message, _] =
-      Source.actorRef[WordGenerated](1, OverflowStrategy.fail)
-        .mapMaterializedValue { outgoingMessagesActor =>
-          monitoringActor ! SubscribeWords(outgoingMessagesActor)
-          NotUsed
-        }.map { wordGenerated =>
-        TextMessage.Strict(wordGenerated.word)
-      }
-
 
     Flow.fromSinkAndSource(
       incomingWebsocketMessages,
-      Source.combine(outgoingWords, outgoingChars)(Merge(_))
+      outgoingWebsocketMessages
     )
   }
 

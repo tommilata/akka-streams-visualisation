@@ -2,39 +2,198 @@
 
 <head>
     <title>Akka Streams</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            width: 100%;
+            height: 100%;
+            flex-direction: row;
+            font-family: sans-serif;
+        }
+
+        #controls {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            width: 100%;
+            height: 100%;
+        }
+
+        .control {
+            margin: auto;
+        }
+
+        #stream {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+        }
+
+        .stream-step {
+            margin: auto;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 25vh;
+            width: 25vh;
+            border: 5px dashed #efefef;
+            border-radius: 50%;
+        }
+
+        .arrow {
+            margin: auto;
+            color: #efefef;
+            font-size: 2em;
+        }
+
+        #source-content,
+        #flow-content,
+        #sink-content {
+            margin: auto;
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .source-item {
+            font-size: 4em;
+            font-family: monospace;
+            color: indianred;
+        }
+
+        .flow-item {
+            font-size: 2em;
+            color: indianred;
+            font-family: monospace;
+        }
+
+        .sink-item {
+            font-size: 2em;
+            color: indianred;
+            font-family: monospace;
+        }
+
+        .stream-step-name {
+            color: #efefef;
+            font-size: 4em;
+        }
+    </style>
 </head>
 
 <body>
-    <div>
-        Source processing time: <input id="source-processing-time" type="range" min="10" max="1000">
-    </div>
-    <div>
-        Sink processing time: <input id="sink-processing-time" type="range" min="1" max="5000">
-    </div>
+    <section id="controls">
+        <div class="control">
+            <label for="source-processing-time">source processing time</label>
+            <input id="source-processing-time" type="range" min="1" max="5000">
+        </div>
+        <div class="control">
+            flow processing time
+        </div>
+        <div class="control">
+            sink processing time
+            <input id="sink-processing-time" type="range" min="1" max="5000">
+        </div>
+    </section>
+    <section id="stream">
+        <div id="source" class="stream-step">
+            <span class="stream-step-name">source</span>
+            <div id="source-content"></div>
+        </div>
+        <div class="arrow">↓</div>
+        <div id="flow" class="stream-step">
+            <span class="stream-step-name">flow</span>
+            <div id="flow-content"></div>
+        </div>
+        <div class="arrow">↓</div>
+        <div id="sink" class="stream-step">
+            <span class="stream-step-name">sink</span>
+            <div id="sink-content"></div>
+        </div>
+    </section>
 
-    <script language="javascript">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/2.2.0/anime.js"></script>
+    <script>
+
         ws = new WebSocket('ws://localhost:8080/stream-control');
 
         document.getElementById("source-processing-time")
-                .addEventListener('change', function (e) {
-                    ws.send(`set-source-processing-time:${event.target.value}`)
-                });
+            .addEventListener('change', function (e) {
+                ws.send(`set-source-processing-time:${event.target.value}`)
+            });
 
         document.getElementById("sink-processing-time")
-                .addEventListener('change', function (e) {
-                    ws.send(`set-sink-processing-time:${event.target.value}`)
-                });
-        
+            .addEventListener('change', function (e) {
+                ws.send(`set-sink-processing-time:${event.target.value}`)
+            });
 
-        // Connection opened
-        ws.addEventListener('open', function (event) {
-            console.log('Websocket open')
-        });
+        function animate(targetType, id) {
+            const element = document.getElementById(id)
+            const targetRect = document.getElementById(`${targetType}`)
+                .getBoundingClientRect()
+            const dX = targetRect.x + (targetRect.width / 2)
+                - element.getBoundingClientRect().x
+                - (element.getBoundingClientRect().width / 2)
+            const dY = targetRect.y + (targetRect.height / 2)
+                - element.getBoundingClientRect().y
+                - (element.getBoundingClientRect().height / 2)
+            anime({
+                targets: `#${id}`,
+                translateX: dX,
+                translateY: dY,
+                duration: 500,
+            });
+        }
 
-        // Listen for messages
+        function createItem(type, value, id) {
+            const wrapper = document.getElementById(`${type}-content`)
+            const item = document.createElement('div')
+            item.setAttribute('id', id)
+            item.setAttribute('class', `${type}-item`)
+            item.textContent = value
+            const element = wrapper.appendChild(item)
+        }
+
+        function removeItem(type, id) {
+            const wrapper = document.getElementById(`${type}-content`)
+            const item = document.getElementById(id)
+            wrapper.removeChild(item)
+        }
+
         ws.addEventListener('message', function (event) {
-            console.log('Message from server ', event.data);
+            const { type, value, id } = JSON.parse(event.data)
+            switch (type) {
+                case 'SourceEventStarted':
+                    createItem('source', value, id)
+                    break;
+                case 'SourceEventFinished':
+                    animate('flow', id)
+                    setTimeout(() => removeItem('source', id), 100)
+                    break;
+                case 'FlowEventStarted':
+                    createItem('flow', value, id)
+                    break;
+                case 'FlowEventFinished':
+                    animate('sink', id)
+                    setTimeout(() => removeItem('flow', id), 100)
+                    break;
+                case 'SinkEventStarted':
+                    createItem('sink', value, id)
+                    break;
+                case 'SinkEventFinished':
+                    setTimeout(() => removeItem('sink', id), 100)
+                    break;
+            }
+
+
         });
+
+
     </script>
 </body>
 
