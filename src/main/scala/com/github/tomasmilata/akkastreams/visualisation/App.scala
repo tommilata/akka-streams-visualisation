@@ -37,11 +37,11 @@ object App extends App with RandomChars {
 
   val randomCharSource = Source(
     Stream.continually {
-      (sourceControlActor ? GetSpeed).mapTo[Speed]
+      (sourceControlActor ? GetSpeed).mapTo[Speed] // get current speed
         .map { speed =>
           val letter = Letter(randomChar)
           monitoringActor ! SourceEventStarted(letter.value.toString, letter.id)
-          Thread.sleep(speed.processingTime.toMillis)
+          Thread.sleep(speed.processingTime.toMillis) // simulate work by sleeping
           monitoringActor ! SourceEventFinished(letter.value.toString, letter.id)
           letter
         }
@@ -50,25 +50,27 @@ object App extends App with RandomChars {
 
   val wordFlow: Flow[Letter, Word, NotUsed] =
     Flow[Letter].grouped(10).map { letters =>
-      (flowControlActor ? GetSpeed).mapTo[Speed]
+      (flowControlActor ? GetSpeed).mapTo[Speed] // get current speed
         .map { speed =>
           val word = Word(letters.map(_.value).mkString("'", "", "'"))
           monitoringActor ! FlowEventStarted(word.value, word.id)
-          Thread.sleep(speed.processingTime.toMillis)
+          Thread.sleep(speed.processingTime.toMillis) // simulate work by sleeping
           monitoringActor ! FlowEventFinished(word.value, word.id)
           word
         }
     }.mapAsync(1)(identity)
 
   val wordSink: Sink[Word, Future[Done]] = Sink.foreach { word =>
-    (sinkControlActor ? GetSpeed).mapTo[Speed]
+    (sinkControlActor ? GetSpeed).mapTo[Speed] // get current speed
       .map { speed =>
         monitoringActor ! SinkEventStarted(word.value, word.id)
-        Thread.sleep(speed.processingTime.toMillis)
+        Thread.sleep(speed.processingTime.toMillis) // simulate work by sleeping
         monitoringActor ! SinkEventFinished(word.value, word.id)
       }
   }
 
+  // Stream of incoming and outgoing WS messages is represented as an Akka Stream,
+  // but that's unrelated to the stream above.
   def websocketFlow() = {
 
     val incomingWebsocketMessages: Sink[Message, NotUsed] =
@@ -96,6 +98,7 @@ object App extends App with RandomChars {
           NotUsed
         }.map { streamEvent =>
         TextMessage.Strict(
+          // I'm just lazy to use a proper JSON library
           s"""
              |{
              |  "type": "${streamEvent.getClass.getSimpleName}",
@@ -111,7 +114,7 @@ object App extends App with RandomChars {
     )
   }
 
-  val route =
+  val route = // set up Akka HTTP route
     path("stream-control") {
       get {
         handleWebSocketMessages(
@@ -120,6 +123,7 @@ object App extends App with RandomChars {
       }
     }
 
+  // materialize (i.e. actually run) the stream
   wordFlow.runWith(
     randomCharSource,
     wordSink
