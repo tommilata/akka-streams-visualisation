@@ -104,27 +104,33 @@
         <input id="source-processing-time"
                type="range"
                list="processing-times"
+               value="100"
                min="10"
                max="1000"
         >
+        <span id="source-processing-time-value">100</span> ms
     </div>
     <div class="control">
         flow processing time
         <input id="flow-processing-time"
                type="range"
                list="processing-times"
+               value="50"
                min="10"
                max="1000"
         >
+        <span id="flow-processing-time-value">50</span> ms
     </div>
     <div class="control">
         sink processing time
         <input id="sink-processing-time"
                type="range"
                list="processing-times"
+               value="500"
                min="10"
                max="1000"
         >
+        <span id="sink-processing-time-value">500</span> ms
     </div>
 </section>
 <section id="stream">
@@ -152,14 +158,17 @@
         document.getElementById("source-processing-time")
             .addEventListener('change', function (e) {
                 ws.send(`set-source-processing-time:${event.target.value}`)
-            });
-        document.getElementById("sink-processing-time")
-            .addEventListener('change', function (e) {
-                ws.send(`set-sink-processing-time:${event.target.value}`)
+                document.getElementById('source-processing-time-value').innerHTML = event.target.value
             });
         document.getElementById("flow-processing-time")
             .addEventListener('change', function (e) {
                 ws.send(`set-flow-processing-time:${event.target.value}`)
+                document.getElementById('flow-processing-time-value').innerHTML = event.target.value
+            });
+        document.getElementById("sink-processing-time")
+            .addEventListener('change', function (e) {
+                ws.send(`set-sink-processing-time:${event.target.value}`)
+                document.getElementById('sink-processing-time-value').innerHTML = event.target.value
             });
 
         function animate(targetType, id) {

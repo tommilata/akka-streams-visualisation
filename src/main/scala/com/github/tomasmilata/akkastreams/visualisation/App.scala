@@ -30,8 +30,8 @@ object App extends App with RandomChars {
   implicit val askTimeout = Timeout(30.seconds)
 
   val sourceControlActor = system.actorOf(Props(new ControlActor(Speed(100.millis))))
-  val flowControlActor = system.actorOf(Props(new ControlActor(Speed(100.millis))))
-  val sinkControlActor = system.actorOf(Props(new ControlActor(Speed(10.millis))))
+  val flowControlActor = system.actorOf(Props(new ControlActor(Speed(50.millis))))
+  val sinkControlActor = system.actorOf(Props(new ControlActor(Speed(500.millis))))
 
   val monitoringActor = system.actorOf(Props[MonitoringActor])
 
