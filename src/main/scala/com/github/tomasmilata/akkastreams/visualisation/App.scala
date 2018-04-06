@@ -13,8 +13,7 @@ import akka.util.Timeout
 import akka.{Done, NotUsed}
 import com.github.tomasmilata.akkastreams.visualisation.Events._
 import com.github.tomasmilata.akkastreams.visualisation.MonitoringActor.Subscribe
-import com.github.tomasmilata.akkastreams.visualisation.control._
-
+import com.github.tomasmilata.akkastreams.visualisation.control.{ControlActor, _}
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
@@ -30,8 +29,10 @@ object App extends App with RandomChars {
 
   implicit val askTimeout = Timeout(30.seconds)
 
-  val sourceControlActor = system.actorOf(Props[SourceControlActor])
-  val wordSinkControlActor = system.actorOf(Props[SinkControlActor])
+  val sourceControlActor = system.actorOf(Props(new ControlActor(Speed(100.millis))))
+  val flowControlActor = system.actorOf(Props(new ControlActor(Speed(100.millis))))
+  val sinkControlActor = system.actorOf(Props(new ControlActor(Speed(10.millis))))
+
   val monitoringActor = system.actorOf(Props[MonitoringActor])
 
   val randomCharSource = Source(
@@ -47,16 +48,20 @@ object App extends App with RandomChars {
     }
   ).mapAsync(1)(identity)
 
-  val wordFlow: Flow[Letter, Word, NotUsed] = Flow[Letter].grouped(10).map { letters =>
-    val word = Word(letters.map(_.value).mkString("'", "", "'"))
-    monitoringActor ! FlowEventStarted(word.value, word.id)
-    Thread.sleep(100)
-    monitoringActor ! FlowEventFinished(word.value, word.id)
-    word
-  }
+  val wordFlow: Flow[Letter, Word, NotUsed] =
+    Flow[Letter].grouped(10).map { letters =>
+      (flowControlActor ? GetSpeed).mapTo[Speed]
+        .map { speed =>
+          val word = Word(letters.map(_.value).mkString("'", "", "'"))
+          monitoringActor ! FlowEventStarted(word.value, word.id)
+          Thread.sleep(speed.processingTime.toMillis)
+          monitoringActor ! FlowEventFinished(word.value, word.id)
+          word
+        }
+    }.mapAsync(1)(identity)
 
   val wordSink: Sink[Word, Future[Done]] = Sink.foreach { word =>
-    (wordSinkControlActor ? GetSpeed).mapTo[Speed]
+    (sinkControlActor ? GetSpeed).mapTo[Speed]
       .map { speed =>
         monitoringActor ! SinkEventStarted(word.value, word.id)
         Thread.sleep(speed.processingTime.toMillis)
@@ -74,10 +79,14 @@ object App extends App with RandomChars {
           val setSpeed = SetSpeed(text.split(':')(1).toInt.millis)
           println(s"Sending $setSpeed to randomCharSource")
           sourceControlActor ! setSpeed
+        case text if text.startsWith("set-flow-processing-time:") =>
+          val setSpeed = SetSpeed(text.split(':')(1).toInt.millis)
+          println(s"Sending $setSpeed to the flow")
+          flowControlActor ! setSpeed
         case text if text.startsWith("set-sink-processing-time:") =>
           val setSpeed = SetSpeed(text.split(':')(1).toInt.millis)
           println(s"Sending $setSpeed to wordSink")
-          wordSinkControlActor ! setSpeed
+          sinkControlActor ! setSpeed
       })
 
     val outgoingWebsocketMessages: Source[Message, _] =
